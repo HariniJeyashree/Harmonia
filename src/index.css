@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@300..700&family=Quicksand:wght@300..700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Quicksand", "Fredoka", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fredoka", "Quicksand", sans-serif;
+  --color-brand-bg: #FFF9FB;
+  --color-brand-text: #5A4B51;
+  --color-brand-heading: #5D4A52;
+  --color-brand-accent-heading: #8A707B;
+  --color-brand-pink: #FF85A1;
+  --color-brand-pink-light: #FFD1DC;
+  --color-brand-pink-softer: #FAD2E1;
+  --color-brand-muted: #B5A1A9;
+  --color-brand-purple: #9166CC;
+  --color-brand-purple-light: #F3E8FF;
+  --color-brand-green-light: #E2F0CB;
+}
+
+/* Custom whimsical animations & utility classes */
+@keyframes float {
+  0% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(3deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+@keyframes slow-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-slow-spin {
+  animation: slow-spin 20s linear infinite;
+}
+
+/* Custom elegant scrollbar styling for results */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(244, 63, 94, 0.05);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(244, 63, 94, 0.2);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(244, 63, 94, 0.3);
+}
+

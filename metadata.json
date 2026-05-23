@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Couple\u0027s Connection Quiz",
+  "description": "A cute, interactive pastel-themed couples connection quiz with local state saving, fun personalized questions, live feedback, and synchronization challenge for two partners.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
