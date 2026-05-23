@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+import Groq from "groq-sdk";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -15,190 +15,157 @@ async function startServer() {
   app.use(express.json());
 
   // Initialize Gemini AI client
-  const apiKey = process.env.GEMINI_API_KEY;
-  const ai = new GoogleGenAI({
-    apiKey: apiKey || "MOCK_KEY", // fallback to prevent startup crash, fails nicely at runtime
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      }
-    }
+  const groqApiKey = process.env.GROQ_API_KEY;
+const groq = new Groq({
+  apiKey: groqApiKey || "MOCK_KEY", // fallback to prevent startup crash, fails nicely at runtime
   });
 
   // Server-side route to generate personalized questions
   app.post("/api/generate-question", async (req, res) => {
-    try {
-      const { category, categoryLabel, partnerAName, partnerBName, excludedTexts } = req.body;
-      
-      if (!apiKey) {
-        return res.status(500).json({ 
-          error: "GEMINI_API_KEY is not configured on the server. Please add it via Settings > Secrets." 
-        });
-      }
+  try {
+    const { category, categoryLabel, partnerAName, partnerBName, excludedTexts } = req.body;
+    
+    if (!groqApiKey) {
+      return res.status(500).json({ 
+        error: "GROQ_API_KEY is not configured on the server. Please add it via Settings." 
+      });
+    }
 
-      const prompt = `Generate a single creative, cute, multiple choice quiz question for the couple.
-Category: ${category || "favorites"} (${categoryLabel || "favorites"})
-Partner A's name: ${partnerAName || "Partner A"}
-Partner B's name: ${partnerBName || "Partner B"}
-Excluded questions or themes to avoid: ${JSON.stringify(excludedTexts || [])}
-
-Make the question heartwarming, lighthearted, and tailored directly to their couple relationship! Ensure the category and categoryLabel in the response match exactly.`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-        config: {
-          systemInstruction: `You are a whimsical, lovable Couples Quizmaster AI. 
+    const systemPrompt = `You are a whimsical, lovable Couples Quizmaster AI. 
 Generate a cute, lighthearted, and heartwarming multiple-choice question for a couples compatibility game.
 Use the partner's names (${partnerAName || "Partner A"} and ${partnerBName || "Partner B"}) to make the question feel cozy, funny, and deeply personalized.
 The options should be distinct, fun, engaging, and appropriate for couples.
-The category field MUST be the exact category provided: ${category}.
-The categoryLabel field MUST be: ${categoryLabel}.
-Create unique, cute emojis for each of the 4 options.`,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              category: { type: Type.STRING },
-              categoryLabel: { type: Type.STRING },
-              text: { type: Type.STRING },
-              options: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    text: { type: Type.STRING },
-                    emoji: { type: Type.STRING }
-                  },
-                  required: ["id", "text", "emoji"]
-                }
-              },
-              quizmasterComment: {
-                type: Type.OBJECT,
-                properties: {
-                  partnerA: { type: Type.STRING },
-                  partnerBCorrect: { type: Type.STRING },
-                  partnerBIncorrect: { type: Type.STRING }
-                },
-                required: ["partnerA", "partnerBCorrect", "partnerBIncorrect"]
-              }
-            },
-            required: ["category", "categoryLabel", "text", "options", "quizmasterComment"]
-          }
-        }
-      });
+The category field MUST be the exact category provided: "${category}".
+The categoryLabel field MUST be: "${categoryLabel}".
+Create unique, cute emojis for each of the 4 options.
 
-      const text = response.text;
-      if (!text) {
-        throw new Error("Empty response received from Gemini API");
-      }
+Return your response strictly as a valid JSON object matching this schema:
+{
+  "category": "${category}",
+  "categoryLabel": "${categoryLabel}",
+  "text": "The question content here?",
+  "options": [
+    {"id": "a", "text": "First option", "emoji": "💖"},
+    {"id": "b", "text": "Second option", "emoji": "✨"},
+    {"id": "c", "text": "Third option", "emoji": "🕯️"},
+    {"id": "d", "text": "Fourth option", "emoji": "🌻"}
+  ],
+  "quizmasterComment": {
+    "partnerA": "Commentary when Partner A looks at this question...",
+    "partnerBCorrect": "Commentary when Partner B matches the vibes correctly! 💖",
+    "partnerBIncorrect": "Sweet, playful advice commenting on the mismatch! 💕"
+  }
+}`;
 
-      const parsed = JSON.parse(text);
-      // Assign a unique dynamic ID
-      parsed.id = `ai-${category || "gen"}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      
-      res.json(parsed);
-    } catch (err: any) {
-      console.error("AI generation failed:", err);
-      res.status(500).json({ error: err?.message || "Failed to generate AI question" });
+    const promptMessage = `Generate a single creative, cute, multiple choice quiz question for the couple.
+Category: ${category || "favorites"}
+Partner A's name: ${partnerAName || "Partner A"}
+Partner B's name: ${partnerBName || "Partner B"}
+Excluded questions or themes to avoid: ${JSON.stringify(excludedTexts || [])}`;
+
+    // Query Groq using a fast LLaMA 3.3 model with JSON enforcement
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: promptMessage }
+      ],
+      model: "llama-3.3-70b-versatile",
+      response_format: { type: "json_object" }
+    });
+
+    const text = chatCompletion.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("Empty response received from Groq API");
     }
-  });
 
+    const parsed = JSON.parse(text);
+    parsed.id = `ai-${category || "gen"}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    
+    res.json(parsed);
+  } catch (err: any) {
+    console.error("Groq generation failed:", err);
+    res.status(500).json({ error: err?.message || "Failed to generate question" });
+  }
+});
   // Server-side route to generate an entire personalized quiz of 10 questions
   app.post("/api/generate-quiz", async (req, res) => {
-    try {
-      const { partnerAName, partnerBName, promptTheme } = req.body;
-      
-      if (!apiKey) {
-        return res.status(500).json({ 
-          error: "GEMINI_API_KEY is not configured on the server. Please add it via Settings > Secrets." 
-        });
-      }
-
-      const prompt = `Generate a fully customized, romantic connection quiz comprising exactly 10 cute, lighthearted, and creative multiple-choice questions for the couple.
-Partner A name: ${partnerAName || "Partner A"}
-Partner B name: ${partnerBName || "Partner B"}
-Special Relationship Theme or Vibe: ${promptTheme || "general cute couple facts, memories, and cozy habits"}
-
-Requirements for each question:
-1. Formulate a heartwarming, sweet, or playful connection question.
-2. Provide exactly 4 distinct, charming, and relatable multiple-choice options with cute emojis.
-3. Include whimsical "quizmasterComment" commentary lines for Partner A answering, Partner B guess is correct, and Partner B guess is incorrect.
-4. Ensure the topic fits the relationship theme: "${promptTheme}".`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-        config: {
-          systemInstruction: `You are a whimsical, lovable Couples Quizmaster AI.
-Generate a JSON array of exactly 10 multiple-choice couples trivia questions.
-For each question, use the partner's names (${partnerAName || "Partner A"} and ${partnerBName || "Partner B"}) to make the questions feel cozy, funny, and deeply personalized.
-Ensure each question has an "id", "category", "categoryLabel", "text", "options" array (with 4 items, each having "id", "text", "emoji"), and a "quizmasterComment" object (with "partnerA", "partnerBCorrect", "partnerBIncorrect").`,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                category: { type: Type.STRING },
-                categoryLabel: { type: Type.STRING },
-                text: { type: Type.STRING },
-                options: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      id: { type: Type.STRING },
-                      text: { type: Type.STRING },
-                      emoji: { type: Type.STRING }
-                    },
-                    required: ["id", "text", "emoji"]
-                  }
-                },
-                quizmasterComment: {
-                  type: Type.OBJECT,
-                  properties: {
-                    partnerA: { type: Type.STRING },
-                    partnerBCorrect: { type: Type.STRING },
-                    partnerBIncorrect: { type: Type.STRING }
-                  },
-                  required: ["partnerA", "partnerBCorrect", "partnerBIncorrect"]
-                }
-              },
-              required: ["id", "category", "categoryLabel", "text", "options", "quizmasterComment"]
-            }
-          }
-        }
+  try {
+    const { partnerAName, partnerBName, promptTheme } = req.body;
+    
+    if (!groqApiKey) {
+      return res.status(500).json({ 
+        error: "GROQ_API_KEY is not configured on the server. Please add it via Settings." 
       });
-
-      const text = response.text;
-      if (!text) {
-        throw new Error("Empty response received from Gemini API");
-      }
-
-      const questions = JSON.parse(text);
-      if (!Array.isArray(questions) || questions.length === 0) {
-        throw new Error("Invalid array structure returned from Gemini AI");
-      }
-
-      // Ensure each question has a valid unique ID and matching category
-      const finalizedQuestions = questions.map((q, idx) => {
-        return {
-          ...q,
-          id: `ai-quiz-${idx}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          category: q.category || "custom",
-          categoryLabel: q.categoryLabel || "🔮 Personal AI Quiz"
-        };
-      });
-
-      res.json(finalizedQuestions);
-    } catch (err: any) {
-      console.error("AI quiz generation failed:", err);
-      res.status(500).json({ error: err?.message || "Failed to generate AI quiz" });
     }
-  });
+
+    const systemPrompt = `You are a whimsical, lovable Couples Quizmaster AI.
+Generate a JSON array of exactly 10 cute, lighthearted, and creative multiple-choice couples trivia questions.
+For each question, use the partner's names (${partnerAName || "Partner A"} and ${partnerBName || "Partner B"}) to make the questions feel cozy, funny, and deeply personalized.
+Ensure each question matches the relationship theme: "${promptTheme || "general cute couple facts, memories, and cozy habits"}".
+
+Return your entire response strictly as a JSON array matching this exact schema shape:
+[
+  {
+    "category": "favorites",
+    "categoryLabel": "✨ Sweet Favorites",
+    "text": "The custom question with partner names?",
+    "options": [
+      {"id": "a", "text": "Option A text", "emoji": "🌸"},
+      {"id": "b", "text": "Option B text", "emoji": "🥞"},
+      {"id": "c", "text": "Option C text", "emoji": "🚀"},
+      {"id": "d", "text": "Option D text", "emoji": "🚲"}
+    ],
+    "quizmasterComment": {
+      "partnerA": "Comment for Partner A...",
+      "partnerBCorrect": "Congrats/match comment!",
+      "partnerBIncorrect": "Encouraging/funny comment!"
+    }
+  }
+]`;
+
+    const promptMessage = `Create exactly 10 themed quiz questions matching the theme: "${promptTheme}". Ensure there are exactly 10 questions in the array response.`;
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: promptMessage }
+      ],
+      model: "llama-3.3-70b-versatile",
+      response_format: { type: "json_object" }
+    });
+
+    const text = chatCompletion.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("Empty response received from Groq API");
+    }
+
+    // Try parsing the root of the JSON (sometimes returns array directly, or wraps in a top level key)
+    let questions = JSON.parse(text);
+    if (!Array.isArray(questions)) {
+      // Safe fallback if model wrapped array in a root object e.g. { "questions": [...] }
+      const possibleArray = Object.values(questions).find(val => Array.isArray(val));
+      if (Array.isArray(possibleArray)) {
+        questions = possibleArray;
+      } else {
+        throw new Error("Invalid object format returned from Groq - expected a root array of 10 questions.");
+      }
+    }
+
+    const finalizedQuestions = questions.map((q: any, idx: number) => {
+      return {
+        ...q,
+        id: `ai-quiz-${idx}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        category: q.category || "custom",
+        categoryLabel: q.categoryLabel || "🔮 Personal AI Quiz"
+      };
+    });
+
+    res.json(finalizedQuestions);
+  } catch (err: any) {
+    console.error("Groq quiz generation failed:", err);
+    res.status(500).json({ error: err?.message || "Failed to generate quiz" });
+  }
+});
 
   // Local file database for bulletproof state persistence (survives cold starts and restarts)
   // Saved in standard OS temp directory to completely isolate from Vite's local workspace file-watcher
