@@ -876,7 +876,7 @@ export default function App() {
             </div>
             <div>
               <span className="text-xl md:text-2xl font-bold tracking-tight text-[#8A707B] font-display">
-                Couple's Connection
+                Harmonia
               </span>
               <span className="text-[10px] text-[#B5A1A9] block font-bold uppercase tracking-wider -mt-1">
                 Quiz & bonding game
